@@ -19,7 +19,7 @@ i0    = 550
 
 function load_files(modelname)
     fnames = glob("$modelname.*")
-    files=h5open.(fnames[50:500],"r")
+    files=h5open.(fnames[50:60],"r")
     s=keys.(files)
     isempty(s) && print("Path \"$modelname\" incorrect") 
     return files, s
@@ -75,26 +75,26 @@ function extract(i0,i_end)
     """
     #ti = vcat(tim.(i0:i_end)...)
     nx = 550 
-    ny = sum(substr) 
-    global res = Array{Float64}(undef,nx,ny)
-    global zeit = Array{Float64}(undef,ny)
-    global counter = 1 
+    ny = sum(substr[i0:i_end]) 
+    res = Array{Float64}(undef,nx,ny)
+    zeit = Array{Float64}(undef,ny)
+    counter = 1 
     for el in 1:(i_end+1-i0)
         println(el)
         yi = set_index(el) 
-        global yi   = set_index(el) 
-        global tmp1 = cos.(yzn(el,yi))
-        global tmp2 = sin.(tmp1)
-        global r    = xzn(el,yi)
-        global dΩ   = 2π .* delta_θ(el,yi)
-        global Φ_l  = Φ(el,yi) 
-        global Sᵣ   = S_r(el,yi)
-        global Sθ   = S_θ(el,yi)
+        yi   = set_index(el) 
+        tmp1 = cos.(yzn(el,yi))
+        tmp2 = sin.(tmp1)
+        r    = xzn(el,yi)
+        dΩ   = 2π .* delta_θ(el,yi)
+        Φ_l  = Φ(el,yi) 
+        Sᵣ   = S_r(el,yi)
+        Sθ   = S_θ(el,yi)
         for k in 1:substr[el]
             integrant = ((r[:,k].^3 .* Φ_l[:,:,k].^6) .* tmp2[:,k]').*
             ((Sᵣ[:,:,k] .* (3 .* (tmp1[:,k]'.^2) .- 1)  .+ (3 ./ r[:,k])) .* Sθ[:,:,k] .* tmp2[:,k]' .* tmp1[:,k]')
-            global res[:,counter] = integrant * dΩ[:,k] # no, there is no dot here 
-            global zeit[counter] = yi[k]["time"] 
+            res[:,counter] = integrant * dΩ[:,k] # no, there is no dot here 
+            zeit[counter] = yi[k]["time"] 
             counter += 1 
         end 
     end 
@@ -106,6 +106,6 @@ end
 #jldsave("output/time.jld2"; zeit)
 #jldsave("output/integral.jld2"; integrant)
 
-close.(files)
+#close.(files)
 
 end 
