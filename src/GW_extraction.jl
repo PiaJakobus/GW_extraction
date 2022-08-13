@@ -14,149 +14,169 @@ using NPZ
 
 G = 6.67430e-8
 c = 2.99792458e10
-prefac = 32 * π^2 * G / (√(15) * c^4)
+prefac = 32 * π^1.5 * G / (√(15) * c^4)
 
 modelname = "../cmf2/output/z35_2d_cmf_symm"
-#tstart = 0.77254
-#t_pb = 0.43248043
-t_ev  = 0.4  
-i0    = 550 
 
 function load_files(modelname,i0,iend)
     fnames = glob("$modelname.*")
     files=h5open.(fnames[i0:iend],"r")
-    s=keys.(files)
-    isempty(s) && print("Path \"$modelname\" incorrect") 
-    return files, s
+    #isempty(s) && print("Path \"$modelname\" incorrect") 
+    return files
 end
 
 
-#permutedims(b,(3,1,2))
+# some useful helper functions 
+set_index(i,files,s)    = map(el->read(files[i][el]),s[i])
+reshape_1d(q,i,yi,substr) = reduce((x,y) -> cat(x,y,dims=2), map(el->yi[el][q],1:substr[i]))
+reshape_2d(q,i,yi,substr) = reduce((x,y) -> cat(x,y,dims=3), map(el->yi[el][q][:,:,1],1:substr[i]))
+tim(index,yi,substr)       = map(el->yi[el]["time"],1:substr[index])
+xzn(index,yi,substr)       = reshape_1d("xzn",index,yi,substr)
+xzr(index,yi,substr)       = reshape_1d("xzr",index,yi,substr)
+xzl(index,yi,substr)       = reshape_1d("xzl",index,yi,substr)
+yzn(index,yi,substr)       = reshape_1d("yzn",index,yi,substr)
+yzr(index,yi,substr)       = reshape_1d("yzr",index,yi,substr)
+yzl(index,yi,substr)       = reshape_1d("yzl",index,yi,substr)
+vex(index,yi,substr)       = reshape_2d("vex",index,yi,substr)
+vey(index,yi,substr)       = reshape_2d("vey",index,yi,substr)
+den(index,yi,substr)       = reshape_2d("den",index,yi,substr)
+lpr(index,yi,substr)       = reshape_2d("pre",index,yi,substr)
+ene(index,yi,substr)       = reshape_2d("ene",index,yi,substr)
+gpo(index,yi,substr)       = reshape_2d("gpo",index,yi,substr)
+Φ(index,yi,substr)         = reshape_2d("phi",index,yi,substr)
+v(index,yi,substr)      = .√(vex(index,yi,substr).^2 .+ vey(index,yi,substr).^2)
+γ(index,yi,substr)      = 1. ./ .√(1. .- (v(index,yi,substr).^2) ./ c^2) 
+enth(index,yi,substr)   = 1. .+ e_int(index,yi,substr)./c^2 .+ lpr(index,yi,substr) ./ (den(index,yi,substr).*c^2) 
+S_r(index,yi,substr)    = den(index,yi,substr) .* enth(index,yi,substr) .* γ(index,yi,substr).^2 .* vex(index,yi,substr)
+S_θ(index,yi,substr)    = den(index,yi,substr) .* enth(index,yi,substr) .* γ(index,yi,substr).^2 .* vey(index,yi,substr)
+delta_θ(index,yi,substr) = abs.(cos.(yzl(index,yi,substr)) - cos.(yzr(index,yi,substr)))
+dV(index,yi,substr)      = (1.0/3.0).*abs.(xzl(index,yi,substr).^3 .- xzr(index,yi,substr).^3)
+dr(index,yi,substr)      = abs.(xzl(index,yi,substr) .- xzr(index,yi,substr))
 
-set_index(i)    = map(el->read(files[i][el]),s[i])
-# in order to not load the file multiple times save it in variable:
-# y_i = set_index(i) 
-
-reshape_1d(q,i,yi) = reduce((x,y) -> cat(x,y,dims=2), map(el->yi[el][q],1:substr[i]))
-reshape_2d(q,i,yi) = reduce((x,y) -> cat(x,y,dims=3), map(el->yi[el][q][:,:,1],1:substr[i]))
-                         
-tim(index,yi)       = map(el->yi[el]["time"],1:substr[index])
-xzn(index,yi)       = reshape_1d("xzn",index,yi)
-yzn(index,yi)       = reshape_1d("yzn",index,yi)
-yzr(index,yi)       = reshape_1d("yzr",index,yi)
-yzl(index,yi)       = reshape_1d("yzl",index,yi)
-vex(index,yi)       = reshape_2d("vex",index,yi)
-vey(index,yi)       = reshape_2d("vey",index,yi)
-den(index,yi)       = reshape_2d("den",index,yi)
-lpr(index,yi)       = reshape_2d("pre",index,yi)
-ene(index,yi)       = reshape_2d("ene",index,yi)
-gpo(index,yi)       = reshape_2d("gpo",index,yi)
-Φ(index,yi)         = reshape_2d("phi",index,yi)
-
-v(index,yi)      = .√(vex(index,yi).^2 .+ vey(index,yi).^2)
-γ(index,yi)      = 1. ./ .√(1. .- (v(index,yi).^2) ./ c^2) 
-enth(index,yi)   = 1. .+ G .* e_int(index,yi)./c^2 .+ lpr(index,yi) ./ (den(index,yi).*c^2) 
-S_r(index,yi)    = den(index,yi) .* enth(index,yi) .* γ(index,yi).^2 .* vex(index,yi)
-S_θ(index,yi)    = den(index,yi) .* enth(index,yi) .* γ(index,yi).^2 .* vey(index,yi)
-delta_θ(index,yi) = abs.(cos.(yzl(index,yi)) - cos.(yzr(index,yi)))
-
-function e_int(i,yi)
-    e = ene(i,yi) .* (G / c^2)
+function e_int(i,yi,substr)
+    e = ene(i,yi,substr) .* (G / c^2)
     l = 1:substr[i]
-    all(any.(x -> x <= 0., gpo(i,yi))) ? wl = ones(550,128,substr[i]) : wl = γ(i,yi) 
-    rho = den(i,yi)
-    pre = lpr(i,yi) 
+    wl = γ(i,yi,substr)
+    rho = den(i,yi,substr)
+    pre = lpr(i,yi,substr) 
     eps = e .+ c^2 .* (1.0 .- wl) ./ wl .+ pre .* (1.0 .- wl.^2) ./ (rho .* wl.^2)              
 end
 
-#yi = set_index(3)
 
-function extract(i0,i_end)
+
+function extract(i0,i_end,files)
     """
     i: start index of time window 
     """
-    #ti = vcat(tim.(i0:i_end)...)
     nx = 550 
+    global s = keys.(files)
+    global substr = length.(s)
     ny = sum(substr) 
     res = Array{Float64}(undef,nx,ny)
     zeit = Array{Float64}(undef,ny)
+    check_A = Array{Float64}(undef,ny)
+    integrant = Array{Float64}(undef,nx,128)
     counter = 1 
+    tmp_r = zeros(nx)
+    tmp2 = 0.0 
     for el in 1:(i_end+1-i0)
         println(el)
-        yi = set_index(el) 
-        yi   = set_index(el) 
-        tmp1 = cos.(yzn(el,yi))
-        tmp2 = sin.(tmp1)
-        r    = xzn(el,yi)
-        dΩ   = 2π .* delta_θ(el,yi)
-        Φ_l  = Φ(el,yi) 
-        Sᵣ   = S_r(el,yi)
-        Sθ   = S_θ(el,yi)
+        yi   = set_index(el,files,s) 
+        tmp1 = cos.(yzn(el,yi,substr))
+        tmp3 = sin.(yzn(el,yi,substr))
+        r    = xzn(el,yi,substr)
+        dΩ   = delta_θ(el,yi,substr)
+        Φ_l  = Φ(el,yi,substr) 
+        Sᵣ   = S_r(el,yi,substr)
+        Sθ   = S_θ(el,yi,substr)
+        global dᵣ   = dr(el,yi,substr)
         for k in 1:substr[el]
-            integrant = ((r[:,k].^3 .* Φ_l[:,:,k].^6) .* tmp2[:,k]').*
-            ((Sᵣ[:,:,k] .* (3 .* (tmp1[:,k]'.^2) .- 1)  .+ (3 ./ r[:,k])) .* Sθ[:,:,k] .* tmp2[:,k]' .* tmp1[:,k]')
-            res[:,counter] = integrant * dΩ[:,k] # no, there is no dot here 
+            #integrant = ((r[:,k].^3 .* Φ_l[:,:,k].^8) .* tmp3[:,k]').*
+            #(Sᵣ[:,:,k] .* (3 .* (tmp1[:,k]'.^2) .- 1)  .+ (3 ./ r[:,k]) .* Sθ[:,:,k] .* tmp3[:,k]' .* tmp1[:,k]')
+            #res[:,counter] = integrant * dΩ[:,k] # no, there is no dot here 
+            #check_A[counter] = res[:,counter]' * dᵣ[:,k]  
             zeit[counter] = yi[k]["time"] 
+            for rr in 1:550
+                for tt in 1:128
+                    integrant[rr,tt] = ((r[rr,k]^3 * Φ_l[rr,tt,k]^8) * tmp3[tt,k])*
+                    (Sᵣ[rr,tt,k] * (3 * (tmp1[tt,k]^2) - 1)  + (3 / r[rr,k]) * Sθ[rr,tt,k] * tmp3[tt,k] * tmp1[tt,k])
+                    tmp_r[rr] += integrant[rr,tt] * dΩ[tt,k]
+                end
+                tmp2 += tmp_r[rr] * dᵣ[rr,k]
+            end 
+            res[:,counter] = tmp_r
+            check_A[counter] = tmp2 
+            tmp_r = 0 .* tmp_r
+            tmp2 = 0.0
             counter += 1 
         end 
     end 
-    return prefac .* res,zeit
+    close.(files)
+    return prefac .* res, prefac .* check_A , zeit,dᵣ
 end 
 
-# main 
-#
-# make sure here that files indizes match load_files call
-#i0 = 500 
-#iend = 510
-#files,s = load_files(modelname,i0,iend)
-#substr          = length.(s)
-#integ, zeit = extract(i0,iend)
-#jldsave("output/time.jld2"; zeit)
-#jldsave("output/integral.jld2"; integ)
-#close.(files)
 
-#f = jldopen("output/time.jld2")
-#d = jldopen("output/integral.jld2")
-#xdata = f["zeit"]
-#ydata = d["integ"]
+function run(i0,iend)
+    files = load_files(modelname,i0,iend)
+    integ, integ_r, zeit, dr = extract(i0,iend,files)
+    jldsave("output/time.jld2"; zeit)
+    jldsave("output/dr.jld2"; dr)
+    jldsave("output/integral.jld2"; integ)
+    jldsave("output/integral_r.jld2"; integ_r)
+    close.(files)
+    # interpolate with BSline 4th order
+    itp_int = mapslices(r -> interpolate(zeit, r, BSplineOrder(2)),integ,dims=2)
+    itp_int_r = interpolate(zeit, integ_r, BSplineOrder(2))
+    # take deriviative w.r. to time 
+    df_integ =  map(r->diff(r,Derivative(1)),itp_int)
+    df_integ_r =  diff(itp_int_r,Derivative(1))
+    dt_integ = transpose(hcat(map(r -> r.(zeit), df_integ)...))
+    dt_integ_r = df_integ_r.(zeit)
+    jldsave("output/dt_integral.jld2";dt_integ)
+    jldsave("output/dt_integral_r.jld2";dt_integ_r)
+    # or for numpy multi-D arrays using NPZ 
+    #npzwrite("output/numpy_res.npz",[dt_integ,zeit])
+    return integ,integ_r,dt_integ,dt_integ_r
+end 
 
-# interpolate with BSline 4th order
-#itp_arr = mapslices(r -> interpolate(xdata, r, BSplineOrder(4)),ydata,dims=2)
-# take deriviative w.r. to time 
-#df_arr =  map(r->diff(r,Derivative(1)),itp_arr)
-# cut off big dt's and reform into (N_r, N_time)
-#time_red = xdata[200:end]
-#res = transpose(hcat(map(r -> r.(time_red), df_arr)...))
+function fourrier(ir)
+    zeit = jldopen("output/time.jld2")["zeit"]
+    integ = jldopen("output/integral.jld2")["integ"]
+    integ_r = jldopen("output/integral_r.jld2")["integ_r"]
+    dr = jldopen("output/dr.jld2")["dr"]
+    dt_integ = jldopen("output/dt_integral.jld2")["dt_integ"] 
+    dt_integ_r = jldopen("output/dt_integral_r.jld2")["dt_integ_r"] 
+    #radius = npzread("output/radius_z35.npz")["arr_0"]
+    N_time = length(zeit)
+    ts = 1e4
+    fs = 1/ts
+    t0 = zeit[1]
+    tmax = t0 + (N_time-1) * 1/ts
+    t = t0:fs:tmax
 
-#jldsave("output/time_red.jld2";time_red)
-#jldsave("output/derivative_red.jld2";res)
+    F(ir) = fft(dt_integ[ir,:]) |> fftshift
+    Fr    = fft(dt_integ_r) |> fftshift
+    freqs = fftfreq(length(zeit), fs) |> fftshift
+    #global F_r = plot(zeit,dt_integ_r,title= "Signal over r")
+    #if plotting
+    #    fi = F(6) 
+    #    time_domain(ir) = plot(zeit, dt_integ[ir,:], title = "Signal")
+    #    freq_domain(ir) = plot(freqs, abs.(F(ir)), title = "Spectrum", xlim=(-1000, +1000))
+        #time_dr  = plot(zeit,integ_r,title="int over r")
+    #    ir = 6  
+    #    display(plot(time_domain(ir), freq_domain(ir),F_r ,layout = 3))
+    #end
+    close(jldopen("output/time.jld2"))
+    close(jldopen("output/integral.jld2"))
+    close(jldopen("output/integral_r.jld2"))
+    close(jldopen("output/dr.jld2"))
+    close(jldopen("output/dt_integral.jld2"))
+    close(jldopen("output/dt_integral_r.jld2"))
+    return freqs, F(ir),Fr
+end 
 
-# or for numpy multi-D arrays using NPZ 
-#npzwrite("output/numpy_res.npz",res)
-g = jldopen("output/time_red.jld2")["time_red"]
-h = jldopen("output/derivative_red.jld2")["res"] 
-radius = npzread("output/radius_z35.npz")["arr_0"]
-#plot(g,h[6,:],label = "test")
-N = length(time)
-fs = 1e-4
-t0 = time[1]
-tmax = t0 + (N-1) * fs
-t = t0:Ts:max
-# signal
-signal = sin.(2π * 60 .* t) # sin (2π f t)
 
-# Fourier Transform of it
-F = fft(signal) |> fftshift
-freqs = fftfreq(length(t), 1.0/Ts) |> fftshift
-
-# plots
-time_domain = plot(t, signal, title = "Signal")
-freq_domain = plot(freqs, abs.(F), title = "Spectrum", xlim=(-1000, +1000))
-plot(time_domain, freq_domain, layout = 2)
-#close(g)
-#close(h)
-
-#close(f)
-#close(d)
+i0 = 0
+iend = 850
 
 end 
