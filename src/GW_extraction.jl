@@ -11,6 +11,9 @@ using BSplineKit
 using FFTW
 using Plots 
 using NPZ
+using LaTeXStrings
+using Wavelets
+using ContinuousWavelets
 
 G = 6.67430e-8
 c = 2.99792458e10
@@ -130,6 +133,8 @@ function run(i0,iend)
     # take deriviative w.r. to time 
     df_integ =  map(r->diff(r,Derivative(1)),itp_int)
     df_integ_r =  diff(itp_int_r,Derivative(1))
+    # alternatively..
+    # deriv = (hi[2:end] .- hi[1:end-1]) ./ (zeit[2:end] .- zeit[1:end-1])
     dt_integ = transpose(hcat(map(r -> r.(zeit), df_integ)...))
     dt_integ_r = df_integ_r.(zeit)
     jldsave("output/dt_integral.jld2";dt_integ)
@@ -139,44 +144,87 @@ function run(i0,iend)
     return integ,integ_r,dt_integ,dt_integ_r
 end 
 
-function fourrier(ir)
+function plot_radius_freq(tmin,tmax,rmin,rmax)
     zeit = jldopen("output/time.jld2")["zeit"]
     integ = jldopen("output/integral.jld2")["integ"]
     integ_r = jldopen("output/integral_r.jld2")["integ_r"]
     dr = jldopen("output/dr.jld2")["dr"]
+    radius = jldopen("output/radius_z35.jld2")["radius"]
     dt_integ = jldopen("output/dt_integral.jld2")["dt_integ"] 
     dt_integ_r = jldopen("output/dt_integral_r.jld2")["dt_integ_r"] 
-    #radius = npzread("output/radius_z35.npz")["arr_0"]
-    N_time = length(zeit)
+    N_time = length(zeit[tmin:tmax])
     ts = 1e4
     fs = 1/ts
-    t0 = zeit[1]
-    tmax = t0 + (N_time-1) * 1/ts
-    t = t0:fs:tmax
-
-    F(ir) = fft(dt_integ[ir,:]) |> fftshift
+    t0 = zeit[tmin]
+    tend = t0 + (N_time-1) * 1/ts
+    t = t0:fs:tend
+    Δt = (tend -t0)*1000
+    F(ir) = abs.(fft(dt_integ[ir,tmin:tmax]) |> fftshift)
     Fr    = fft(dt_integ_r) |> fftshift
-    freqs = fftfreq(length(zeit), fs) |> fftshift
-    #global F_r = plot(zeit,dt_integ_r,title= "Signal over r")
-    #if plotting
-    #    fi = F(6) 
-    #    time_domain(ir) = plot(zeit, dt_integ[ir,:], title = "Signal")
-    #    freq_domain(ir) = plot(freqs, abs.(F(ir)), title = "Spectrum", xlim=(-1000, +1000))
-        #time_dr  = plot(zeit,integ_r,title="int over r")
-    #    ir = 6  
-    #    display(plot(time_domain(ir), freq_domain(ir),F_r ,layout = 3))
-    #end
+    #freqs = fftfreq(length(zeit[tmin:tmax]), ts) |> fftshift
+    freq = LinRange(0,ts/2,N_time)
+    fi = convert(Int32,floor(length(freq)/2))
+    s = hcat(F.(rmin:rmax)...) 
+    s2 = hcat(F.(1:550)...)
+    p1 = heatmap(radius[rmin:rmax] ./ 1e5,freq[1:fi],s[1:fi,:],title=
+                 "t=$(floor(t0,sigdigits=2)) s ($(floor(Δt,sigdigits=
+                 2)) ms)",xlabel="radius/km",ylabel="freq [Hz]")
+    p2 = plot(zeit,dt_integ[rmin,:],label="r1= $(floor(radius[rmin]/1e5)) km",lw=0.4)
+    p2 = plot!(zeit,dt_integ[rmax,:],label="r2= $(floor(radius[rmax]/1e5)) km",lw=0.4,
+               ylabel="a20 (cm)",xlabel="time [s]",legend=:left)
+    s1 = minimum([minimum(dt_integ[rmin,:]),minimum(dt_integ[rmax,:])])
+    s2 = maximum([maximum(dt_integ[rmax,:]),maximum(dt_integ[rmin,:])])
+    println(s1,"  ",s2)
+    p2 = plot!([t0,tend], [s2,s2],fillrange=[s1,s1],fillalpha=0.2,c=1,label="")
+    p2 = plot!([t0,tend], [s1,s1],fillrange=[s2,s2],fillalpha=0.2,c=1,label="")
+    l=@layout [a{.3h};b{.7h}]
+    display(plot(p2,p1,layout=l))
     close(jldopen("output/time.jld2"))
     close(jldopen("output/integral.jld2"))
     close(jldopen("output/integral_r.jld2"))
     close(jldopen("output/dr.jld2"))
     close(jldopen("output/dt_integral.jld2"))
     close(jldopen("output/dt_integral_r.jld2"))
-    return freqs, F(ir),Fr
+    close(jldopen("output/radius_z35.jld2"))
+    return 
 end 
 
+function plot_heatmap(ir)
+    zeit       = jldopen("output/time.jld2")["zeit"]
+    dt_integ   = jldopen("output/dt_integral.jld2")["dt_integ"] 
+    dt_integ_r = jldopen("output/dt_integral_r.jld2")["dt_integ_r"] 
+    radius     = jldopen("output/radius_z35.jld2")["radius"]
+ 
+    # time band:
+    t = zeit[400:end]
+    fs =1/ diff(zeit)[400]
+    f = dt_integ[ir,400:end]
+    f2 = dt_integ_r[400:end]
+    c = wavelet(Morlet(1.5π), averagingType=NoAve(), β=2)
+    res = ContinuousWavelets.cwt(f, c)
+    res2 = ContinuousWavelets.cwt(f2, c)
+    freq = LinRange(0,fs/2,size(res[1,:])[1])
+    
+    rad = convert(Int32,floor(radius[ir]/1e5)) 
+    p1 = plot(t,f,title="a20(t) (cm)",label="($rad km)")
+    rad = convert(Int32,floor(radius[ir+4]/1e5)) 
+    p1 = plot!(t,dt_integ[ir+4,400:end],label="($rad km)")
+    rad = convert(Int32,floor(radius[ir+8]/1e5)) 
+    p1 = plot!(t,dt_integ[ir+8,400:end],label="($rad km)",legend=:right)
 
-i0 = 0
-iend = 850
+    p2 = heatmap(t,freq,abs.(res)', xlabel= "time [s]",ylabel="frequency [Hz]",colorbar=false,ylims=(0,2000))
+
+    p3 = plot(t,f2,legend=false,title=L"\int a20(t) (cm)")
+    p4 = heatmap(t,freq,abs.(res2)', xlabel= "time [s]",ylabel="frequency [Hz]",colorbar=false,ylims=(0,2000))
+    l=@layout [a{.3h};b{.7h}]
+    display(plot(p1,p2,layout=l))
+
+    close(jldopen("output/time.jld2"))
+    close(jldopen("output/dr.jld2"))
+    close(jldopen("output/dt_integral.jld2"))
+    close(jldopen("output/dt_integral_r.jld2"))
+    close(jldopen("output/radius_z35.jld2"))
+end
+
 
 end 
