@@ -14,6 +14,7 @@ using NPZ
 using LaTeXStrings
 using Wavelets
 using ContinuousWavelets
+gr()
 
 G = 6.67430e-8
 c = 2.99792458e10
@@ -80,8 +81,8 @@ function extract(i0,i_end,files)
     check_A = Array{Float64}(undef,ny)
     integrant = Array{Float64}(undef,nx,128)
     counter = 1 
-    tmp_r = zeros(nx)
-    tmp2 = 0.0 
+    #tmp_r = zeros(nx)
+    #tmp2 = 0.0 
     for el in 1:(i_end+1-i0)
         println(el)
         yi   = set_index(el,files,s) 
@@ -94,27 +95,28 @@ function extract(i0,i_end,files)
         Sθ   = S_θ(el,yi,substr)
         global dᵣ   = dr(el,yi,substr)
         for k in 1:substr[el]
-            #integrant = ((r[:,k].^3 .* Φ_l[:,:,k].^8) .* tmp3[:,k]').*
-            #(Sᵣ[:,:,k] .* (3 .* (tmp1[:,k]'.^2) .- 1)  .+ (3 ./ r[:,k]) .* Sθ[:,:,k] .* tmp3[:,k]' .* tmp1[:,k]')
-            #res[:,counter] = integrant * dΩ[:,k] # no, there is no dot here 
-            #check_A[counter] = res[:,counter]' * dᵣ[:,k]  
+            integrant = ((r[:,k].^3 .* Φ_l[:,:,k].^8) .* tmp3[:,k]').*
+            (Sᵣ[:,:,k] .* (3 .* (tmp1[:,k]'.^2) .- 1)  .+ (3 ./ r[:,k]) .* Sθ[:,:,k] .* tmp3[:,k]' .* tmp1[:,k]')
+            res[:,counter] = integrant * dΩ[:,k] # no, there is no dot here 
+            check_A[counter] = res[:,counter]' * dᵣ[:,k]  
             zeit[counter] = yi[k]["time"] 
-            for rr in 1:550
-                for tt in 1:128
-                    integrant[rr,tt] = ((r[rr,k]^3 * Φ_l[rr,tt,k]^8) * tmp3[tt,k])*
-                    (Sᵣ[rr,tt,k] * (3 * (tmp1[tt,k]^2) - 1)  + (3 / r[rr,k]) * Sθ[rr,tt,k] * tmp3[tt,k] * tmp1[tt,k])
-                    tmp_r[rr] += integrant[rr,tt] * dΩ[tt,k]
-                end
-                tmp2 += tmp_r[rr] * dᵣ[rr,k]
-            end 
-            res[:,counter] = tmp_r
-            check_A[counter] = tmp2 
-            tmp_r = 0 .* tmp_r
-            tmp2 = 0.0
+            #for rr in 1:550
+            #    for tt in 1:128
+            #        integrant[rr,tt] = ((r[rr,k]^3 * Φ_l[rr,tt,k]^8) * tmp3[tt,k])*
+            #        (Sᵣ[rr,tt,k] * (3 * (tmp1[tt,k]^2) - 1)  + (3 / r[rr,k]) * Sθ[rr,tt,k] * tmp3[tt,k] * tmp1[tt,k])
+            #        tmp_r[rr] += integrant[rr,tt] * dΩ[tt,k]
+            #    end
+            #    tmp2 += tmp_r[rr] * dᵣ[rr,k]
+            #end 
+            #res[:,counter] = tmp_r
+            #check_A[counter] = tmp2 
+            #tmp_r = 0 .* tmp_r
+            #tmp2 = 0.0
             counter += 1 
         end 
+        close(files[el])
     end 
-    close.(files)
+    #close.(files)
     return prefac .* res, prefac .* check_A , zeit,dᵣ
 end 
 
@@ -144,7 +146,7 @@ function run(i0,iend)
     return integ,integ_r,dt_integ,dt_integ_r
 end 
 
-function plot_radius_freq(tmin,tmax,rmin,rmax)
+function plot_radius_freq(tmin,tmax,rmin,rmax,mirror=true)
     zeit = jldopen("output/time.jld2")["zeit"]
     integ = jldopen("output/integral.jld2")["integ"]
     integ_r = jldopen("output/integral_r.jld2")["integ_r"]
@@ -155,30 +157,36 @@ function plot_radius_freq(tmin,tmax,rmin,rmax)
     N_time = length(zeit[tmin:tmax])
     ts = 1e4
     fs = 1/ts
-    t0 = zeit[tmin]
+    t0 = zeit[tmin] 
     tend = t0 + (N_time-1) * 1/ts
     t = t0:fs:tend
-    Δt = (tend -t0)*1000
-    F(ir) = abs.(fft(dt_integ[ir,tmin:tmax]) |> fftshift)
-    Fr    = fft(dt_integ_r) |> fftshift
-    #freqs = fftfreq(length(zeit[tmin:tmax]), ts) |> fftshift
-    freq = LinRange(0,ts/2,N_time)
+    Δt = (tend -t0)*1000 
+    tmp(ir) = mirror ? vcat(dt_integ[ir,tmin:tmax],reverse(dt_integ[ir,tmin:tmax])) : dt_integ[ir,tmin:tmax]
+    freq = mirror ? [el/(2*(tend-t0)) for el in 1:(2*N_time)] : LinRange(0,ts,N_time)
+    println(length(freq))
+    F(ir) = abs.(fft(tmp(ir))) #|> fftshift  
+    Fr    = fft(dt_integ_r) #|> fftshift
     fi = convert(Int32,floor(length(freq)/2))
     s = hcat(F.(rmin:rmax)...) 
     s2 = hcat(F.(1:550)...)
-    p1 = heatmap(radius[rmin:rmax] ./ 1e5,freq[1:fi],s[1:fi,:],title=
+    s1 = s .* freq /2
+    p1 = heatmap(log10.(radius[rmin:rmax] ./ 1e5),freq[1:fi],(s1[1:fi,:]),title=
                  "t=$(floor(t0,sigdigits=2)) s ($(floor(Δt,sigdigits=
-                 2)) ms)",xlabel="radius/km",ylabel="freq [Hz]")
-    p2 = plot(zeit,dt_integ[rmin,:],label="r1= $(floor(radius[rmin]/1e5)) km",lw=0.4)
-    p2 = plot!(zeit,dt_integ[rmax,:],label="r2= $(floor(radius[rmax]/1e5)) km",lw=0.4,
-               ylabel="a20 (cm)",xlabel="time [s]",legend=:left)
-    s1 = minimum([minimum(dt_integ[rmin,:]),minimum(dt_integ[rmax,:])])
-    s2 = maximum([maximum(dt_integ[rmax,:]),maximum(dt_integ[rmin,:])])
-    println(s1,"  ",s2)
-    p2 = plot!([t0,tend], [s2,s2],fillrange=[s1,s1],fillalpha=0.2,c=1,label="")
-    p2 = plot!([t0,tend], [s1,s1],fillrange=[s2,s2],fillalpha=0.2,c=1,label="")
+                                                        2)) ms)",xlabel="radius/km",ylabel="freq [Hz]")
+    p1 = plot!(ylims=(0,1500))
+    p2 = plot(zeit .- 0.34,1e5 .* dt_integ[rmin,:],label="r1= $(floor(radius[rmin]/1e5)) km",lw=0.4)
+    p2 = plot!(zeit .- 0.34,1e5 .* dt_integ[rmax,:],label="r2= $(floor(radius[rmax]/1e5)) km",lw=0.4,
+               ylabel="\$ 10^5 \\cdot \$ a20 (cm)",xlabel="time [s]",legend=:best)
+    p2 = plot!(fg_legend = :false,bg_legend=nothing)
+
+    s1 = 1e5*minimum([minimum(dt_integ[rmin,:]),minimum(dt_integ[rmax,:])])
+    s2 = 1e5*maximum([maximum(dt_integ[rmax,:]),maximum(dt_integ[rmin,:])])
+    #println(s1,"  ",s2)
+    plot!([t0,tend] .- 0.34, [s2,s2],fillrange=[s1,s1],fillalpha=0.1,c=:blue,label="")
+    plot!([t0,tend] .- 0.34, [s1,s1],fillrange=[s2,s2],fillalpha=0.1,c=:blue,label="")
     l=@layout [a{.3h};b{.7h}]
-    display(plot(p2,p1,layout=l))
+    display(plot(p2,p1,layout=l,dpi=200))
+    savefig("plots/radius_freq_on_1.png")
     close(jldopen("output/time.jld2"))
     close(jldopen("output/integral.jld2"))
     close(jldopen("output/integral_r.jld2"))
@@ -186,7 +194,7 @@ function plot_radius_freq(tmin,tmax,rmin,rmax)
     close(jldopen("output/dt_integral.jld2"))
     close(jldopen("output/dt_integral_r.jld2"))
     close(jldopen("output/radius_z35.jld2"))
-    return 
+    return
 end 
 
 function plot_heatmap(ir)
@@ -196,26 +204,29 @@ function plot_heatmap(ir)
     radius     = jldopen("output/radius_z35.jld2")["radius"]
  
     # time band:
-    t = zeit[400:end]
-    fs =1/ diff(zeit)[400]
-    f = dt_integ[ir,400:end]
-    f2 = dt_integ_r[400:end]
-    c = wavelet(Morlet(1.5π), averagingType=NoAve(), β=2)
+    t = zeit
+    fs =1/ diff(zeit)[1]
+    f = dt_integ[ir,:]
+    f2 = dt_integ_r
+    c = wavelet(Morlet(4π), averagingType=NoAve(), β=0.6)
     res = ContinuousWavelets.cwt(f, c)
     res2 = ContinuousWavelets.cwt(f2, c)
     freq = LinRange(0,fs/2,size(res[1,:])[1])
+    #freq = LinRange(0,fs,size(res[1,:])[1])
     
-    rad = convert(Int32,floor(radius[ir]/1e5)) 
-    p1 = plot(t,f,title="a20(t) (cm)",label="($rad km)")
+    rad1 = convert(Int32,floor(radius[ir]/1e5)) 
+    p1 = plot(t,1e5 .* f,title="a20(t) (cm)",label="r\$_0\$=$rad1 km")
     rad = convert(Int32,floor(radius[ir+4]/1e5)) 
-    p1 = plot!(t,dt_integ[ir+4,400:end],label="($rad km)")
+    p1 = plot!(t,1e5 .* dt_integ[ir+4,:],label="$rad km")
     rad = convert(Int32,floor(radius[ir+8]/1e5)) 
-    p1 = plot!(t,dt_integ[ir+8,400:end],label="($rad km)",legend=:right)
-
-    p2 = heatmap(t,freq,abs.(res)', xlabel= "time [s]",ylabel="frequency [Hz]",colorbar=false,ylims=(0,2000))
+    p1 = plot!(t,1e5 .* dt_integ[ir+8,:],
+            ylabel = "\$10^5\$ \$\\cdot\$ a20 (cm)", xlabel="time [s]",label="$rad km",legend=:bottom)
+    p1 = plot!(fg_legend = :false,bg_legend=nothing)
+    p2 = heatmap(t,freq,((abs.(res)).^0.1)', xlabel= "time (s)",ylabel="frequency [Hz]",colorbar=true,ylims=(0,4000),interpolation=true)
+    #annotate!(t[10],freq[end-10],text("$rad1 km",:white))
 
     p3 = plot(t,f2,legend=false,title=L"\int a20(t) (cm)")
-    p4 = heatmap(t,freq,abs.(res2)', xlabel= "time [s]",ylabel="frequency [Hz]",colorbar=false,ylims=(0,2000))
+    p4 = heatmap(t,freq,abs.(res2)', xlabel= "time [s]",ylabel="frequency [Hz]",interpolate=true,colorbar=false,ylims=(0,1000))
     l=@layout [a{.3h};b{.7h}]
     display(plot(p1,p2,layout=l))
 
