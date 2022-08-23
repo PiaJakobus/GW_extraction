@@ -3,4 +3,8 @@
 *.swap
 *.jld2
 *.pdf
+*.png
+*.pdf
+*.gif
 output/*
+plots/*
