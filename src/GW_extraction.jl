@@ -25,11 +25,13 @@ G = 6.67430e-8
 c = 2.99792458e10
 prefac = 32 * π^1.5 * G / (√(15) * c^4)
 
-model = "../cmf2/output/z85_2d_cmf_highreso"
+#model = "../cmf2/output/z85_2d_cmf_highreso"
 #model = "../cmf2/output/z35_2d_cmf_highreso"
 #model = "../other_2d/z85_sfhx/output/z85_2d_sfhx"
+model = "../other_2d/z85_sfhx/output/z35_2d_sfhx"
 
-modelname = "z35_cmf"
+#modelname = "z35_cmf"
+modelname = "z35_sfhx"
 tb = 0.34
 #modelname = "z85_cmf"
 #tb = 0.496 
@@ -38,10 +40,14 @@ tb = 0.34
 
 
 
-function load_files(model,i0,iend)
+function load_files(model)
+    """
+    Loads all hdf5 files  under /model 
+    returns a list of hdf5 objects 
+    """
+    println("loading files...")
     fnames = glob("$model.*")
-    #files=h5open.(fnames[i0:iend],"r")
-    #isempty(s) && print("Path \"$modelname\" incorrect") 
+    println("loading files done.")
     return fnames
 end
 
@@ -83,10 +89,13 @@ end
 
 
 
-#function extract(i0,i_end,files)
 function extract(i0,i_end,fnames)
     """
     i: start index of time window 
+    Return: Gravitational wave quadrupole integrant 
+    where A₂₀ = ∫a₂₀dθ (axisymmetry)(Mueller et al 2013)
+    No integreation over radius to preserve radial dependence 
+    (Using Rieman sums)
     """
     nx = 550 
     ny = 128 
@@ -124,7 +133,11 @@ end
 
 
 function run(i0,iend)
-    fnames = load_files(model,i0,iend)
+    """
+    Return: Integration by Riemann sum'ing ∫a₂₀dr 
+    Interpolates radial quantities before integrating 
+    """
+    fnames = load_files(model)
     integ, integ_r, zeit, radius = extract(i0,iend,fnames[i0:iend])
     println("...Ectract  finished...")
     jldsave("output/time_$modelname.jld2"; zeit)
@@ -145,18 +158,30 @@ function run(i0,iend)
     jldsave("output/dt_integral_$modelname.jld2";dt_integ)
     jldsave("output/dt_integral_r_$modelname.jld2";dt_integ_r)
     # or for numpy multi-D arrays using NPZ 
-    #npzwrite("output/numpy_res.npz",[dt_integ,zeit])
     return integ,integ_r,dt_integ,dt_integ_r
 end 
 
-function plot_radius_freq(modelname,tmin,tmax,rmin,rmax;mirror=true,smooth=1,av=3,cmap=:RdGy_11,rev=true)
-    zeit = jldopen("output/time_$modelname.jld2")["zeit"]
-    integ = jldopen("output/integral_$modelname.jld2")["integ"]
-    integ_r = jldopen("output/integral_r_$modelname.jld2")["integ_r"]
-    radius = jldopen("output/radius_$modelname.jld2")["radius"]
-    dt_integ = jldopen("output/dt_integral_$modelname.jld2")["dt_integ"] 
-    dt_integ_r = jldopen("output/dt_integral_r_$modelname.jld2")["dt_integ_r"] 
+function plot_radius_freq(modelname,tmin,tmax,rmin,rmax;mirror=true,kiss=0.8,smooth=1,av=3,cmap=:RdGy_11,rev=true,cmax=17)
+    f = jldopen("output/time_$modelname.jld2")
+    zeit = f["zeit"]
+    close(f) 
+    f = jldopen("output/integral_$modelname.jld2")
+    integ = f["integ"]
+    close(f) 
+    f = jldopen("output/integral_r_$modelname.jld2")
+    integ_r = f["integ_r"]
+    close(f) 
+    f = jldopen("output/radius_$modelname.jld2")
+    radius = f["radius"]
+    close(f) 
+    f = jldopen("output/dt_integral_$modelname.jld2") 
+    dt_integ = f["dt_integ"]
+    close(f) 
+    f = jldopen("output/dt_integral_r_$modelname.jld2") 
+    dt_integ_r = f["dt_integ_r"]
+    close(f) 
     nx = length(dt_integ[:,1])
+    tb = t_bounce(modelname) 
     #(!iszero(smooth)) && (dt_integ = hcat(map(it -> KissSmoothing.denoise(dt_integ[:,it])[1],1:length(zeit))...))
     (!iszero(smooth)) && (dt_integ = hcat(map(it -> Smoothing.binomial(dt_integ[:,it],smooth),1:length(zeit))...))
     aver = Int(floor(av/2))
@@ -170,30 +195,48 @@ function plot_radius_freq(modelname,tmin,tmax,rmin,rmax;mirror=true,smooth=1,av=
     Δt = (tend -t0)*1000 
     tmp(ir) = mirror ? vcat(dt_integ[ir,tmin:tmax],reverse(dt_integ[ir,tmin:tmax])) : dt_integ[ir,tmin:tmax]
     freq = mirror ? [el/(2*(tend-t0)) for el in 1:(2*N_time)] : LinRange(0,ts,N_time)
-    F(ir) = KissSmoothing.denoise(abs.(fft(tmp(ir))),factor=0.7)[1] #|> fftshift  
-    Fr    = fft(dt_integ_r) #|> fftshift
+    F(ir) = (!iszero(kiss)) ? KissSmoothing.denoise(abs.(fft(tmp(ir))),factor=kiss)[1] : abs.(fft(tmp(ir)))
+    Fr    = fft(dt_integ_r) 
     fi = convert(Int32,floor(length(freq)/2))
     s = hcat(F.(rmin:rmax)...) 
     s2 = hcat(F.(1:length(dt_integ[:,1]))...)
     s1 = s .* freq /2
     p1 = heatmap(log10.(radius[rmin:rmax] ./ 1e5),freq[1:fi],(s1[1:fi,:]),
-                clim=(0,17),
-                 title="Δt=$(Int(floor(Δt,sigdigits= 1))) ms",
-                           xlabel="r (km)",
+                 xlims = (log10(radius[rmin]/1e5),log10(radius[rmax]/1e5)),
+                clim=(0,cmax),
+                title="$(modelname[1:3]) $(modelname[5:end]): Δt=$(Int(floor(Δt,sigdigits= 2))) ms",
+                           xlabel="Radius (km)",
                 colorbar=:none,
                 c=cgrad(cmap, rev=rev),
                 xticks=([log10(2.5),log10(5),1,2],["2.5","5","10","100"]),
-                ylabel="freq [Hz]")
+                ylabel="Frequency (Hz)")
     p1 = plot!(ylims=(0,1500))
-    #p2 = plot(zeit .- 0.34,1e5 .* dt_integ[rmax,:],label="r1= $(floor(radius[rmax]/1e5)) km",lw=0.4)
-    mitte = 22#Int32(floor((rmin + 0.8*rmax) /2))
-    p2 = plot(zeit[1:end-10] .- tb,1e5 .* dt_integ[mitte,1:end-10],
-              label="$(floor(radius[mitte]/1e5)) km",
+    #p1= plot!([],[],color=:white,label=modelname,legend=:top)
+    #p2 = annotate!([(90,1400, text("mytext", :red, :right))])
+    
+    npzwrite("output/r_$modelname.npy", log10.(radius[rmin:rmax] ./ 1e5))
+    npzwrite("output/f_$modelname.npy", freq[1:fi])
+    npzwrite("output/s_$modelname.npy", s1[1:fi,:])
+    m1 = 22#Int32(floor((rmin + 0.8*rmax) /2))
+    m2 = 30 
+    m3 = 40
+    mitte = m1
+    p2 = plot(zeit[1:end-10] .- tb,1e5 .* dt_integ[m3,1:end-10],
+              label="$(floor(radius[m3]/1e5)) km",
+              lw=0.5,
+              color=:black)
+    p2 = plot!(zeit[1:end-10] .- tb,1e5 .* dt_integ[m2,1:end-10],
+              label="$(floor(radius[m2]/1e5)) km",
               lw=0.4,
-              color=:black,
+              color=:green)
+    p2 = plot!(zeit[1:end-10] .- tb,1e5 .* dt_integ[m1,1:end-10],
+              label="$(floor(radius[m1]/1e5)) km",
+              lw=0.7,
+              color=:orange,
               ylabel="\$\\tilde{A}_{20}\$ (10\$^5\$cm)",
               xlabel="t-t\$_\\mathrm{b}\$ [s]",
-              legend=:best)
+              legend=:outertopright)
+ 
     p2 = plot!(fg_legend = :false,bg_legend=nothing)
 
     s1 = 1e5*minimum([minimum(dt_integ[mitte,1:end-10]),minimum(dt_integ[mitte,1:end-10])])
@@ -201,25 +244,28 @@ function plot_radius_freq(modelname,tmin,tmax,rmin,rmax;mirror=true,smooth=1,av=
     plot!([t0,tend] .- tb, [s2,s2],fillrange=[s1,s1],fillalpha=0.07,c=:red3,label="")
     plot!([t0,tend] .- tb, [s1,s1],fillrange=[s2,s2],fillalpha=0.07,c=:red3,label="")
     l=@layout [a{.3h};b{.7h}]
-    display(plot(p2,p1,layout=l,dpi=200))
-    println("saving plots/radius_freq_on_grey_$modelname.pdf")
+    #display(plot(p2,p1,layout=l,dpi=200))
     #savefig("plots/radius_freq_on_grey_$modelname.pdf")
-    close(jldopen("output/time_$modelname.jld2"))
-    close(jldopen("output/integral_$modelname.jld2"))
-    close(jldopen("output/integral_r_$modelname.jld2"))
-    close(jldopen("output/radius_$modelname.jld2"))
-    close(jldopen("output/dt_integral_$modelname.jld2"))
-    #close(jldopen("output/dt_integral_r.jld2"))
+    println("tmin=$(t0-tb)")
+    println("tmax=$(tend-tb)")
     return
 end 
 
-function plot_heatmap(ir,smooth=1)
-    zeit       = jldopen("output/time_$modelname.jld2")["zeit"]
-    dt_integ   = jldopen("output/dt_integral_$modelname.jld2")["dt_integ"] 
-    dt_integ_r = jldopen("output/dt_integral_r_$modelname.jld2")["dt_integ_r"] 
-    radius     = jldopen("output/radius_$modelname.jld2")["radius"]
-    !iszero(smooth) && (dt_integ = hcat(map(it -> Smoothing.binomial(dt_integ[:,it],smooth),1:length(zeit))...))
+function plot_heatmap(modelname,ir,smooth=1;cmap=:brg,cmax=5)
+    f = jldopen("output/time_$modelname.jld2")
+    zeit = f["zeit"]
+    close(f) 
+    f = jldopen("output/radius_$modelname.jld2")
+    radius = f["radius"]
+    close(f) 
+    f = jldopen("output/dt_integral_$modelname.jld2") 
+    dt_integ = f["dt_integ"]
+    close(f) 
+    f = jldopen("output/dt_integral_r_$modelname.jld2") 
+    dt_integ_r = f["dt_integ_r"]
+    close(f) 
  
+    !iszero(smooth) && (dt_integ = hcat(map(it -> Smoothing.binomial(dt_integ[:,it],smooth),1:length(zeit))...))
     # time band:
     t = zeit
     fs =1/ diff(zeit)[1]
@@ -229,7 +275,6 @@ function plot_heatmap(ir,smooth=1)
     res = ContinuousWavelets.cwt(f, c)
     res2 = ContinuousWavelets.cwt(f2, c)
     freq = LinRange(0,fs/2,size(res[1,:])[1])
-    #freq = LinRange(0,fs,size(res[1,:])[1])
     
     rad1 = convert(Int32,floor(radius[ir]/1e5)) 
     p1 = plot(t .- 0.34,1e5 .* f,title="a20(t) (cm)",label="r\$_0\$=$rad1 km")
@@ -237,25 +282,19 @@ function plot_heatmap(ir,smooth=1)
     p1 = plot!(t .- 0.34,1e5 .* dt_integ[ir+4,:],label="$rad km")
     rad = convert(Int32,floor(radius[ir+8]/1e5)) 
     p1 = plot!(t .- 0.34,1e5 .* dt_integ[ir+8,:],
-            ylabel = "\$10^5\$ \$\\cdot\$ a20 (cm)", xlabel="time [s]",label="$rad km",legend=:bottom)
+            ylabel = "\$10^5\$ \$\\cdot\$ a20 (cm)", xlabel="time [s]",label="$rad km",legend=:outertopright)
     p1 = plot!(fg_legend = :false,bg_legend=nothing)
-    p2 = heatmap(t .- 0.34,freq,((abs.(res)).^0.1)', xlabel= "time (s)",ylabel="frequency [Hz]",colorbar=true,ylims=(0,1500),interpolation=true)
-    #annotate!(t[10],freq[end-10],text("$rad1 km",:white))
+    p2 = heatmap(t .- 0.34,freq,((abs.(res)).^0.1)', xlabel= "time (s)",ylabel="frequency [Hz]",c=cmap,colorbar=true,ylims=(0,1500),interpolation=true,clim=(0,cmax))
 
     p3 = plot(t,f2,legend=false,title=L"\int a20(t) (cm)")
     p4 = heatmap(t,freq,abs.(res2)', xlabel= "time [s]",ylabel="frequency [Hz]",interpolate=true,colorbar=false,ylims=(0,1000))
     l=@layout [a{.3h};b{.7h}]
     plot(p1,p2,layout=l)
-    #display(plot(p1,p2,layout=l))
-
-    close(jldopen("output/time_$modelname.jld2"))
-    close(jldopen("output/dr_$modelname.jld2"))
-    close(jldopen("output/dt_integral_$modelname.jld2"))
-    close(jldopen("output/dt_integral_r_$modelname.jld2"))
-    close(jldopen("output/radius_$modelname.jld2"))
+    display(plot(p1,p2,layout=l))
 end
 
-function single_plot(tmin,tmax,rmin,rmax,mirror=true,smooth=1,av=3)
+function single_plot(modelname,tmin,tmax,rmin,rmax;mirror=true,smooth=1,av=3,cmap=:RdGy_11,rev=true)
+    tb = t_bounce(modelname) 
     zeit = jldopen("output/time_$modelname.jld2")["zeit"]
     integ = jldopen("output/integral_$modelname.jld2")["integ"]
     radius = jldopen("output/radius_$modelname.jld2")["radius"]
@@ -264,7 +303,8 @@ function single_plot(tmin,tmax,rmin,rmax,mirror=true,smooth=1,av=3)
     #(!iszero(smooth)) && (dt_integ = hcat(map(it -> KissSmoothing.denoise(dt_integ[:,it])[1],1:length(zeit))...))
     (!iszero(smooth)) && (dt_integ = hcat(map(it -> Smoothing.binomial(dt_integ[:,it],smooth),1:length(zeit))...))
     aver = Int(floor(av/2))
-    (!iszero(aver)) && (dt_integ = hcat([[sum(dt_integ[i-aver:i+aver,it])/av for i in (aver+1):nx-aver] for it in 1:length(zeit)]...))
+    (!iszero(aver)) && (dt_integ = hcat([[sum(dt_integ[i-aver:i+aver,it])/av 
+                                          for i in (aver+1):nx-aver] for it in 1:length(zeit)]...))
     N_time = length(zeit[tmin:tmax])
     ts = 1e4
     fs = 1/ts
@@ -274,25 +314,24 @@ function single_plot(tmin,tmax,rmin,rmax,mirror=true,smooth=1,av=3)
     Δt = (tend -t0)*1000 
     tmp(ir) = mirror ? vcat(dt_integ[ir,tmin:tmax],reverse(dt_integ[ir,tmin:tmax])) : dt_integ[ir,tmin:tmax]
     freq = mirror ? [el/(2*(tend-t0)) for el in 1:(2*N_time)] : LinRange(0,ts,N_time)
-    F(ir) = KissSmoothing.denoise(abs.(fft(tmp(ir))),factor=0.7)[1] #|> fftshift  
-    Fr    = fft(dt_integ_r) #|> fftshift
+    F(ir) = KissSmoothing.denoise(abs.(fft(tmp(ir))),factor=0.7)[1] 
     fi = convert(Int32,floor(length(freq)/2))
     s = hcat(F.(rmin:rmax)...) 
     s2 = hcat(F.(1:length(dt_integ[:,1]))...)
     s1 = s .* freq /2
     p = heatmap(log10.(radius[rmin:rmax] ./ 1e5),freq[1:fi],(s1[1:fi,:]),
                 clim=(0,10),
-                 title="Δt=$(Int(floor(Δt,sigdigits= 1))) ms",
-                           xlabel="r (km)",
+                title="Δt=$(Int(floor(Δt,sigdigits= 1))) ms",
+                xlabel="r (km)",
                 colorbar=:none,
                 c=cgrad(cmap, rev=rev),
                 xticks=([log10(2.5),log10(5),1,2],["2.5","5","10","100"]),
                 ylabel="freq [Hz]")
     p = plot!(ylims=(0,1500))
-    close(jldopen("output/time_$modelname.jld2"))
-    close(jldopen("output/dt_integral_$modelname.jld2"))
-    close(jldopen("output/dt_integral_r_$modelname.jld2"))
-    close(jldopen("output/radius_$modelname.jld2"))
+    #close(zeit)
+    #close(integ)
+    #close(dt_integ)
+    #close(radius)
     return p 
 end
 
@@ -306,9 +345,10 @@ function plot_timesteps()
     close(jldopen("output/time_$modelname1.jld2"))
     close(jldopen("output/time_$modelname2.jld2"))
     close(jldopen("output/time_$modelname3.jld2"))
+    tmax1 = 400 
     p1 = single_plot(modelname1,1,tmax1,5,200,mirror=true,smooth=1,av=3,rev=true)
-    p2 = single_plot(modelname2,1,tmax2,5,200,mirror=true,smooth=1,av=3,rev=true)
-    p3 = single_plot(modelname3,1,tmax3,5,200,mirror=true,smooth=1,av=3,rev=true)
+    p2 = single_plot(modelname2,1,tmax1,5,200,mirror=true,smooth=1,av=3,rev=true)
+    p3 = single_plot(modelname3,1,tmax1,5,200,mirror=true,smooth=1,av=3,rev=true)
     l=@layout [grid(3,1)]
     plot(p1,p2,p3,
          layout = l,
@@ -318,17 +358,31 @@ function plot_timesteps()
 end 
 
  
-function make_ani(Δw,modelname)
-    zeit = jldopen("output/time_$modelname.jld2")["zeit"]
-    imax = length(zeit)-10 # 2861
-    ΔN = 400
+function make_ani(Δw,modelname;cmap=:RdGy_11)
+    tb = t_bounce(modelname) 
+    f = jldopen("output/time_$modelname.jld2")
+    zeit = f["zeit"]
+    imax = length(zeit)-5 # 2861
+    ΔN = 200
     tmp = [[i0,i0+ΔN] for i0 in range(1,imax-ΔN,step=Δw)]
     anim = @animate for i ∈ tmp
-        plot_radius_freq(modelname,i[1],i[2],5,200;true,2,3,cmap=:Set3_9)
+        plot_radius_freq(modelname,i[1],i[2],5,200;cmap=cmap,cmax=13,mirror=true,smooth=4,av=3,rev=false)
         end
     gif(anim,"plots/heatmap_$modelname.gif",fps=6)
-    close(jldopen("output/time_$modelname.jld2"))
-
 end 
+
+
+function t_bounce(modelname)
+    tb = 0 
+    if modelname == "z35_cmf"
+        tb = 0.34
+    elseif modelname == "z85_cmf"
+        tb = 0.496 
+    elseif modelname == "z85_sfhx"
+        tb = 0.426
+    end 
+    return tb
+end
+
 
 end 
