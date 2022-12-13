@@ -26,12 +26,12 @@ c = 2.99792458e10
 prefac = 32 * π^1.5 * G / (√(15) * c^4)
 
 #model = "../cmf2/output/z85_2d_cmf_highreso"
-#model = "../cmf2/output/z35_2d_cmf_highreso"
+model = "../cmf2/output/z35_2d_cmf_highreso"
 #model = "../other_2d/z85_sfhx/output/z85_2d_sfhx"
-model = "../other_2d/z85_sfhx/output/z35_2d_sfhx"
+#model = "../other_2d/z85_sfhx/output/z35_2d_sfhx"
 
-#modelname = "z35_cmf"
-modelname = "z35_sfhx"
+modelname = "z35_cmf"
+#modelname = "z35_sfhx"
 tb = 0.34
 #modelname = "z85_cmf"
 #tb = 0.496 
@@ -244,7 +244,7 @@ function plot_radius_freq(modelname,tmin,tmax,rmin,rmax;mirror=true,kiss=0.8,smo
     plot!([t0,tend] .- tb, [s2,s2],fillrange=[s1,s1],fillalpha=0.07,c=:red3,label="")
     plot!([t0,tend] .- tb, [s1,s1],fillrange=[s2,s2],fillalpha=0.07,c=:red3,label="")
     l=@layout [a{.3h};b{.7h}]
-    #display(plot(p2,p1,layout=l,dpi=200))
+    display(plot(p2,p1,layout=l,dpi=200))
     #savefig("plots/radius_freq_on_grey_$modelname.pdf")
     println("tmin=$(t0-tb)")
     println("tmax=$(tend-tb)")
@@ -295,10 +295,14 @@ end
 
 function single_plot(modelname,tmin,tmax,rmin,rmax;mirror=true,smooth=1,av=3,cmap=:RdGy_11,rev=true)
     tb = t_bounce(modelname) 
-    zeit = jldopen("output/time_$modelname.jld2")["zeit"]
-    integ = jldopen("output/integral_$modelname.jld2")["integ"]
-    radius = jldopen("output/radius_$modelname.jld2")["radius"]
-    dt_integ = jldopen("output/dt_integral_$modelname.jld2")["dt_integ"]
+    f1 = jldopen("output/time_$modelname.jld2")
+    zeit = f1["zeit"]
+    f2 = jldopen("output/integral_$modelname.jld2")
+    integ = f2["integ"]
+    f3 = jldopen("output/radius_$modelname.jld2")
+    radius = f3["radius"]
+    f4= jldopen("output/dt_integral_$modelname.jld2")
+    dt_integ = f4["dt_integ"]
     nx = length(dt_integ[:,1])
     #(!iszero(smooth)) && (dt_integ = hcat(map(it -> KissSmoothing.denoise(dt_integ[:,it])[1],1:length(zeit))...))
     (!iszero(smooth)) && (dt_integ = hcat(map(it -> Smoothing.binomial(dt_integ[:,it],smooth),1:length(zeit))...))
@@ -328,10 +332,10 @@ function single_plot(modelname,tmin,tmax,rmin,rmax;mirror=true,smooth=1,av=3,cma
                 xticks=([log10(2.5),log10(5),1,2],["2.5","5","10","100"]),
                 ylabel="freq [Hz]")
     p = plot!(ylims=(0,1500))
-    #close(zeit)
-    #close(integ)
-    #close(dt_integ)
-    #close(radius)
+    close(f1)
+    close(f2)
+    close(f3)
+    close(f4)
     return p 
 end
 
@@ -339,9 +343,12 @@ function plot_timesteps()
     modelname1 = "z85_cmf"
     modelname2 = "z35_cmf"
     modelname3 = "z85_sfhx"
-    tmax1 = length(jldopen("output/time_$modelname1.jld2")["zeit"]) - 10
-    tmax2 = length(jldopen("output/time_$modelname2.jld2")["zeit"]) - 10
-    tmax3 = length(jldopen("output/time_$modelname3.jld2")["zeit"]) - 10
+    f1 = jldopen("output/time_$modelname1.jld2")
+    tmax1 = length(f1["zeit"]) - 10
+    f2 = jldopen("output/time_$modelname2.jld2")
+    tmax2 = length(f2["zeit"]) - 10
+    f3 = jldopen("output/time_$modelname3.jld2")
+    tmax3 = length(f3["zeit"]) - 10
     close(jldopen("output/time_$modelname1.jld2"))
     close(jldopen("output/time_$modelname2.jld2"))
     close(jldopen("output/time_$modelname3.jld2"))
@@ -350,10 +357,14 @@ function plot_timesteps()
     p2 = single_plot(modelname2,1,tmax1,5,200,mirror=true,smooth=1,av=3,rev=true)
     p3 = single_plot(modelname3,1,tmax1,5,200,mirror=true,smooth=1,av=3,rev=true)
     l=@layout [grid(3,1)]
-    plot(p1,p2,p3,
+    p = plot(p1,p2,p3,
          layout = l,
          top_margin = 0.1mm,
          label=["a","b","c"])
+    display(p)
+    close(f1)
+    close(f2)
+    close(f3)
          
 end 
 
@@ -363,12 +374,13 @@ function make_ani(Δw,modelname;cmap=:RdGy_11)
     f = jldopen("output/time_$modelname.jld2")
     zeit = f["zeit"]
     imax = length(zeit)-5 # 2861
-    ΔN = 200
+    ΔN = 400
     tmp = [[i0,i0+ΔN] for i0 in range(1,imax-ΔN,step=Δw)]
     anim = @animate for i ∈ tmp
         plot_radius_freq(modelname,i[1],i[2],5,200;cmap=cmap,cmax=13,mirror=true,smooth=4,av=3,rev=false)
         end
     gif(anim,"plots/heatmap_$modelname.gif",fps=6)
+    close(f)
 end 
 
 

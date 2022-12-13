@@ -475,11 +475,6 @@ git-tree-sha1 = "d972031d28c8c8d9d7b41a536ad7bb0c2579caca"
 uuid = "0656b61e-2033-5cc2-a64a-77c0f6c09b89"
 version = "3.3.8+0"
 
-[[deps.GLMakie]]
-deps = ["AbstractPlotting", "ColorTypes", "Colors", "FileIO", "FixedPointNumbers", "FreeTypeAbstraction", "GLFW", "GeometryBasics", "LinearAlgebra", "Markdown", "MeshIO", "ModernGL", "Observables", "Printf", "Serialization", "ShaderAbstractions", "StaticArrays"]
-git-tree-sha1 = "9bc95f9863c281aab40177466cc9ef7adda056f8"
-uuid = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
-version = "0.1.5"
 
 [[deps.GMP_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -1438,11 +1433,6 @@ git-tree-sha1 = "34db80951901073501137bdbc3d5a8e7bbd06670"
 uuid = "41fe7b60-77ed-43a1-b4f0-825fd5a5650d"
 version = "0.1.2"
 
-[[deps.WGLMakie]]
-deps = ["AbstractPlotting", "Colors", "FileIO", "FreeTypeAbstraction", "GeometryBasics", "Hyperscript", "ImageMagick", "ImageTransformations", "JSServe", "LinearAlgebra", "Observables", "ShaderAbstractions", "StaticArrays"]
-git-tree-sha1 = "8f239ba80cb5899876044d3588a4b85dd7b157e3"
-uuid = "276b4fcb-3e11-5398-bf8b-a0c2d153d008"
-version = "0.2.6"
 
 [[deps.Wavelets]]
 deps = ["DSP", "FFTW", "LinearAlgebra", "Reexport", "SpecialFunctions", "Statistics"]
