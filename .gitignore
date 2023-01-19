@@ -5,7 +5,6 @@
 *.pdf
 *.png
 *.pdf
-*.gif
 *.npy
 output/*
 plots/*
