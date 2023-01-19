@@ -214,9 +214,9 @@ function plot_radius_freq(modelname,tmin,tmax,rmin,rmax;mirror=true,kiss=0.8,smo
     #p1= plot!([],[],color=:white,label=modelname,legend=:top)
     #p2 = annotate!([(90,1400, text("mytext", :red, :right))])
     
-    npzwrite("output/r_$modelname.npy", log10.(radius[rmin:rmax] ./ 1e5))
-    npzwrite("output/f_$modelname.npy", freq[1:fi])
-    npzwrite("output/s_$modelname.npy", s1[1:fi,:])
+    npzwrite("output/r_$(modelname)_.npy", log10.(radius[rmin:rmax] ./ 1e5))
+    npzwrite("output/f_$(modelname)_.npy", freq[1:fi])
+    npzwrite("output/s_$(modelname)_.npy", s1[1:fi,:])
     m1 = 22#Int32(floor((rmin + 0.8*rmax) /2))
     m2 = 30 
     m3 = 40
@@ -373,11 +373,11 @@ function make_ani(Δw,modelname;cmap=:RdGy_11)
     tb = t_bounce(modelname) 
     f = jldopen("output/time_$modelname.jld2")
     zeit = f["zeit"]
-    imax = length(zeit)-5 # 2861
-    ΔN = 400
+    imax = length(zeit)-10 # 5 # 2861
+    ΔN = 200
     tmp = [[i0,i0+ΔN] for i0 in range(1,imax-ΔN,step=Δw)]
     anim = @animate for i ∈ tmp
-        plot_radius_freq(modelname,i[1],i[2],5,200;cmap=cmap,cmax=13,mirror=true,smooth=4,av=3,rev=false)
+        plot_radius_freq(modelname,i[1],i[2],5,200;cmap=cmap,cmax=20,mirror=true,smooth=5,av=3,rev=false)
         end
     gif(anim,"plots/heatmap_$modelname.gif",fps=6)
     close(f)
@@ -392,6 +392,8 @@ function t_bounce(modelname)
         tb = 0.496 
     elseif modelname == "z85_sfhx"
         tb = 0.426
+    elseif modelname == "z35_sfhx"
+        tb = 0.34
     end 
     return tb
 end
